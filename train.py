@@ -1,89 +1,70 @@
 from OSME import osme
 from keras.optimizers import SGD
-from keras.preprocessing.image import ImageDataGenerator
-from keras.callbacks import ModelCheckpoint, ReduceLROnPlateau
+from keras.callbacks import ModelCheckpoint, ReduceLROnPlateau, LearningRateScheduler
 import tensorflow as tf
 import matplotlib.pyplot as plt
 from dataset_new import CUB2011
 import keras.backend.tensorflow_backend as KTF
-from keras import backend as K
-import datetime
+from MAMC import mamc_loss, softmax_loss
 import os
+import datetime
 import matplotlib
-
+from keras import backend as K
 matplotlib.use('Agg')
-import cv2
-import numpy as np
 
-'''
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 config = tf.ConfigProto()
 config.gpu_options.per_process_gpu_memory_fraction = 1 # 每个GPU现存上届控制在60%以内
 session = tf.Session(config=config)
 
 # 设置session
-KTF.set_session(session )
-'''
-classes_path = 'classes.txt'
-train_path = 'dataset/train'
-test_path = 'dataset/train'
-img_size = 600  # 448
-BATCH_SIZE = 4
+KTF.set_session(session)
+root = 'dataset'
+img_size = 448  # 448
+BATCH_SIZE = 10
 classes = []
-num_classes = 20
-test_nb = 40#5794
-train_nb = 40#5994
+num_classes = 200
+test_nb = 5794
+train_nb = 5994
 
-n_epoch = 10  # 10次
-
-with open(classes_path) as f:
-    for r in f:
-        data = r.split()
-        classes.append(data[1])
-
-# 图像预处理
-train_data_gen = ImageDataGenerator(rescale=1.0 / 255,
-                                    zoom_range=[0.7, 1.0],
-                                    rotation_range=30,
-                                    horizontal_flip=True,
-                                    vertical_flip=False, )
-test_data_gen = ImageDataGenerator(rescale=1.0 / 255)
-
-train_generator = train_data_gen.flow_from_directory(
-    train_path,
-    target_size=(img_size, img_size),
-    batch_size=BATCH_SIZE,
-    shuffle=False)
-test_generator = test_data_gen.flow_from_directory(
-    test_path,
-    target_size=(img_size, img_size),
-    batch_size=BATCH_SIZE,
-    shuffle=False)
+n_epoch = 60  # 60次
 
 
+train_generator = CUB2011(root=root, class_num=num_classes, train=True).get_samples(2, BATCH_SIZE//2)
+test_generator = CUB2011(root=root, class_num=num_classes, train=False).get_samples(2, BATCH_SIZE//2)
 
-for i, l in test_generator:
-    true = np.array([np.argmax(one_hot) for one_hot in l])
-    print(true)
-    cv2.imshow('l', i[0])
-    cv2.waitKey()
-
-'''
-def my_accuracy(y_true, y_pred):
-    return tf.shape(y_true)[0]
 
 osme_model = osme(num_classes)
-opt = SGD(lr=0.001, momentum=1.6, decay=0.0005)
-osme_model.compile(optimizer=opt, loss=[loss_function], metrics=['accuracy'])
+opt = SGD(lr=0.0001, momentum=0.9, decay=0.0005)
+
+osme_model.compile(optimizer=opt,
+                   loss=[mamc_loss, softmax_loss],
+                   loss_weights=[0.5, 1.0],
+                   metrics=['accuracy'])
 osme_model.summary()
+
+
+# 学习率衰减策略
+def scheduler(epoch):
+    # 每隔15个epoch，学习率减小为原来的1/10
+    lr = K.get_value(osme_model.optimizer.lr)
+    if epoch % 15 == 0 and epoch != 0:
+        K.set_value(osme_model.optimizer.lr, lr * 0.1)
+        print("\nlr changed to {}\n".format(lr * 0.1))
+    else:
+        print("\nlr is {}\n".format(lr))
+    return K.get_value(osme_model.optimizer.lr)
+
+
+reduce_lr = LearningRateScheduler(scheduler)
+
+osme_model = osme(num_classes)
+opt = SGD(lr=0.001, momentum=0.9, decay=0.0005)
+osme_model.compile(optimizer=opt, loss=[mamc_loss, softmax_loss], metrics=['accuracy'])
 
 
 # 将在每个epoch后保存模型到model_osme_resnet50_gamma.best_loss_.hdf5
 check_pointer = ModelCheckpoint(filepath='model_osme_resnet50_gamma.best_loss_.hdf5', verbose=1, save_best_only=True)
-
-# 测试集损失不再提升时，减少学习率
-reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.1, patience=5, min_lr=0.0000001)
-
 history = osme_model.fit_generator(train_generator,
                                    steps_per_epoch=train_nb/BATCH_SIZE,
                                    epochs=n_epoch,
@@ -91,7 +72,6 @@ history = osme_model.fit_generator(train_generator,
                                    validation_steps=64,
                                    verbose=1,
                                    callbacks=[reduce_lr, check_pointer])
-
 osme_model.save("model.h5")
 
 # 绘图
@@ -115,6 +95,3 @@ plt.xlabel('epoch')
 plt.legend(['train', 'test'], loc='upper left')
 plt.savefig("loss_se_ResNET50_with_OSME{0:%d%m}-{0:%H%M%S}.png".format(now))
 
-
-osme_model.evaluate_generator(generator=test_generator, steps=10, verbose=1)
-'''

@@ -1,8 +1,4 @@
 import tensorflow as tf
-import numpy as np
-from npairs_loss import torchmamc
-import torch
-
 
 def mamc_loss(targets, input_fc):
     """
@@ -13,11 +9,6 @@ def mamc_loss(targets, input_fc):
     attention_num = 2
     bitch_size = 8
     dim = 1024
-    '''
-    attention_num = 2
-    bitch_size = 4
-    dim = 2
-    '''
     n = bitch_size * attention_num  # 向量个数
 
     # 输入向量变为n个dim维向量，然后和转置相乘
@@ -26,7 +17,7 @@ def mamc_loss(targets, input_fc):
     prod = tf.matmul(input_fc, input_fc, transpose_b=True)
 
     # targets张量
-    #targets = tf.where(tf.equal(targets, tf.ones_like(targets)))[:, 1]
+    targets = tf.where(tf.equal(targets, tf.ones_like(targets)))[:, 1]
     targets = tf.reshape(tf.tile(tf.reshape(targets, [bitch_size, 1]), [1, attention_num]), [1, n])
     targets = tf.tile(targets, (n, 1))
 
@@ -59,9 +50,6 @@ def mamc_loss(targets, input_fc):
         neg = tf.tile(neg, [n_pos, 1])
 
         sasc = neg - pos
-        #print(session.run(sasc))
-        #break
-        # sasc = tf.clip_by_value((neg - pos),-1, 1)
         loss_sasc = loss_sasc + tf.reduce_sum(tf.log(1 + tf.reduce_sum(tf.exp(sasc), axis=1)))
 
         # loss_sadc
@@ -76,7 +64,6 @@ def mamc_loss(targets, input_fc):
         neg = tf.tile(neg, [n_pos, 1])
 
         sadc = neg - pos
-        # sadc = tf.clip_by_value((neg - pos),-1, 1)
         loss_sadc = loss_sadc + tf.reduce_sum(tf.log(1 + tf.reduce_sum(tf.exp(sadc), axis=1)))
 
         # loss_dasc
@@ -91,7 +78,6 @@ def mamc_loss(targets, input_fc):
         neg = tf.tile(neg, [n_pos, 1])
 
         dasc = neg - pos
-        # dasc = tf.clip_by_value((neg - pos),-1, 1)
         loss_dasc = loss_dasc + tf.reduce_sum(tf.log(1 + tf.reduce_sum(tf.exp(dasc), axis=1)))
 
     loss = (loss_sasc + loss_sadc + loss_dasc) / tf.cast(tf.shape(input_fc)[0], dtype=tf.float64)
@@ -104,32 +90,3 @@ def softmax_loss(targets, input_predict):
     return loss
 
 
-if __name__ == '__main__':
-    session = tf.Session()
-    inputs = [[ [0.1, 0.3, 0.5, 0.7]],
-         [[0.9, 0.11, 0.3, 0.2]],
-
-         [[0.0, 0.0, 0.0, 0.1]],
-         [[0.1, 0.1, 0.1, 0.1]] ]
-
-    targets = [1, 1, 2, 2]
-
-
-    '''
-    inputs = np.loadtxt('my.txt')
-    targets_oneHot = np.loadtxt('my1.txt')
-    targets = np.array([np.argmax(one_hot) for one_hot in targets_oneHot])
-    '''
-    a = tf.constant(inputs, dtype=tf.float64)
-    b = tf.constant(targets, dtype=tf.float64)
-
-    ta = torch.tensor(inputs)
-    tb = torch.tensor(targets)
-    '''
-    print(tb)
-    print('torch:')
-    print(torchmamc(ta, tb))
-    print('\n')
-    '''
-    print('tf')
-    print(session.run(mamc_loss(b, a)))
